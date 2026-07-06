@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>新民國小成績合併器</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        function App() {
+            const [status, setStatus] = useState("請選擇各班級 CSV 檔案進行合併");
+
+            const processFiles = async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                
+                setStatus("正在處理中...");
+                let finalData = [];
+
+                for (let file of files) {
+                    const text = await file.text();
+                    const lines = text.split(/\r?\n/);
+                    let currentTerm = "未知";
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        let line = lines[i].trim();
+                        if (!line) continue;
+
+                        // 1. 偵測學期標記
+                        if (/^\d-\d-\d/.test(line)) {
+                            currentTerm = line.split(',')[0];
+                            continue;
+                        }
+
+                        // 2. 偵測是否為標題列 (包含"座號"且"姓名")
+                        if (line.includes("座號") && line.includes("姓名")) {
+                            let headers = line.split(',').map(h => h.trim());
+                            
+                            // 往後讀取直到遇到空行或下一個學期
+                            let j = i + 1;
+                            while (j < lines.length && lines[j].trim() !== "" && !/^\d-\d-\d/.test(lines[j])) {
+                                let rowCols = lines[j].split(',').map(c => c.trim());
+                                // 判斷是否為有效資料列 (第一欄是數字)
+                                if (/^\d+$/.test(rowCols[0])) {
+                                    let rowData = {
+                                        "班級": file.name.split(' - ')[1]?.replace('.csv', '') || "未知班級",
+                                        "學期": currentTerm
+                                    };
+                                    headers.forEach((h, idx) => { rowData[h] = rowCols[idx]; });
+                                    finalData.push(rowData);
+                                }
+                                j++;
+                            }
+                            i = j; // 跳過已讀取的學生資料
+                        }
+                    }
+                }
+
+                if (finalData.length > 0) {
+                    const ws = XLSX.utils.json_to_sheet(finalData);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "成績總表");
+                    XLSX.writeFile(wb, "整理後成績總表.xlsx");
+                    setStatus(`成功！已合併 ${finalData.length} 筆學生資料。`);
+                } else {
+                    setStatus("錯誤：無法識別格式，請檢查檔案中是否包含標準標題列。");
+                }
+            };
+
+            return (
+                <div className="max-w-lg mx-auto bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
+                    <h1 className="text-2xl font-bold text-gray-800 mb-2">成績自動合併工具</h1>
+                    <p className="text-gray-500 mb-8">專為新民國小設計，自動識別多學期堆疊格式。</p>
+                    
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-blue-300 border-dashed rounded-2xl cursor-pointer bg-blue-50 hover:bg-blue-100 transition">
+                        <span className="text-blue-600 font-semibold">點擊上傳所有 CSV 檔案</span>
+                        <input type="file" multiple className="hidden" onChange={processFiles} />
+                    </label>
+
+                    <div className="mt-6 p-4 bg-gray-100 rounded-lg text-center font-medium text-gray-700">
+                        {status}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
